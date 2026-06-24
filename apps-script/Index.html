@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root{
+    --green:#528f66; --dgreen:#2c603c; --cream:#faf5e9;
+    --grey:#777; --yolk:#f7c652; --line:#e0e8e2;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:"PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+    background:var(--cream);color:var(--dgreen);}
+  .wrap{max-width:440px;margin:0 auto;padding:20px 18px 40px;}
+  .card{background:#fff;border:2px solid var(--green);border-radius:24px;padding:22px;
+    box-shadow:0 6px 20px rgba(44,96,60,.08);}
+  h1{font-size:22px;text-align:center;margin:6px 0 2px;color:var(--dgreen)}
+  .sub{text-align:center;color:var(--grey);font-size:13px;margin-bottom:16px}
+  .pts{text-align:center;margin:10px 0 4px}
+  .pts b{font-size:46px;color:var(--green)}
+  .pts span{font-size:18px;color:var(--grey)}
+  .hint{text-align:center;color:var(--grey);font-size:14px;margin-bottom:14px}
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:16px 0}
+  .stamp{aspect-ratio:1;border:2px solid var(--green);border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:18px;color:#cfe0d6}
+  .stamp.on{background:var(--green);color:#fff;border-color:var(--green)}
+  .stamp.goal{border-style:dashed}
+  label{display:block;font-size:13px;color:var(--grey);margin:14px 0 6px}
+  input{width:100%;padding:14px;border:1.5px solid var(--line);border-radius:14px;
+    font-size:18px;text-align:center;letter-spacing:2px;outline:none}
+  input:focus{border-color:var(--green)}
+  button{width:100%;padding:15px;border:0;border-radius:16px;font-size:18px;font-weight:700;
+    color:#fff;background:var(--green);margin-top:12px;cursor:pointer}
+  button:active{transform:scale(.99)}
+  button.ghost{background:#fff;color:var(--green);border:2px solid var(--green)}
+  button:disabled{opacity:.5}
+  .reward{background:var(--green);color:#fff;border-radius:16px;padding:16px;text-align:center;margin-top:8px}
+  .reward b{font-size:20px}
+  .msg{text-align:center;font-size:15px;margin-top:12px;min-height:20px}
+  .msg.ok{color:var(--green)} .msg.err{color:#c0504f}
+  .foot{text-align:center;color:var(--grey);font-size:12px;margin-top:18px}
+  .pop{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;
+    align-items:center;justify-content:center;z-index:9}
+  .pop .box{background:#fff;border-radius:22px;padding:26px;max-width:340px;width:86%;text-align:center}
+  .big{font-size:54px;line-height:1.1;margin:6px 0}
+  .link{display:inline-block;margin-top:10px;color:var(--green);font-size:13px;text-decoration:underline;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>MWD 集點卡</h1>
+    <div class="sub" id="shop">泰山明志 BRUNCH</div>
+
+    <!-- 登入（輸入手機） -->
+    <div id="login">
+      <label>請輸入手機號碼當作你的集點帳號</label>
+      <input id="phone" type="tel" inputmode="numeric" placeholder="09xxxxxxxx" maxlength="10">
+      <button onclick="login()">開啟我的集點卡</button>
+      <div class="msg" id="loginMsg"></div>
+    </div>
+
+    <!-- 集點卡主畫面 -->
+    <div id="main" style="display:none">
+      <div class="pts"><b id="pNum">0</b><span> / <span id="pTar">10</span> 點</span></div>
+      <div class="hint" id="hint">再 10 點換好料</div>
+      <div class="grid" id="grid"></div>
+
+      <div id="stampBox">
+        <label>輸入櫃台的「今日通關碼」蓋章</label>
+        <input id="code" type="tel" inputmode="numeric" placeholder="今日通關碼" maxlength="6">
+        <button id="stampBtn" onclick="stamp()">蓋章 +1 點</button>
+      </div>
+
+      <div id="redeemBox" style="display:none">
+        <div class="reward">🎉 點數已集滿！可兌換 <b id="rwd">好料</b></div>
+        <button class="ghost" onclick="askRedeem()">出示給店員兌換</button>
+      </div>
+
+      <div class="msg" id="msg"></div>
+      <div style="text-align:center">
+        <span class="link" onclick="logout()">換一個手機號碼</span>
+      </div>
+    </div>
+  </div>
+  <div class="foot">點數綁定手機號碼存雲端，不怕卡片遺失 · MWD 泰山明志 BRUNCH</div>
+</div>
+
+<!-- 慶祝彈窗 -->
+<div class="pop" id="pop"><div class="box">
+  <div class="big" id="popBig">＋1</div>
+  <div id="popMsg" style="color:var(--dgreen);font-size:17px"></div>
+  <button onclick="hidePop()">好</button>
+</div></div>
+
+<script>
+  var STATE = { phone:'', target:10 };
+
+  function run(fn, args){
+    return new Promise(function(res,rej){
+      google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn].apply(null, args||[]);
+    });
+  }
+  function $(id){ return document.getElementById(id); }
+  function setMsg(el, text, ok){ el.textContent=text||''; el.className='msg '+(ok?'ok':'err'); }
+
+  window.onload = function(){
+    var saved = localStorage.getItem('mwd_phone');
+    if(saved){ $('phone').value=saved; login(); }
+  };
+
+  function login(){
+    var p = ($('phone').value||'').replace(/[^0-9]/g,'');
+    if(p.length < 8){ setMsg($('loginMsg'),'請輸入正確的手機號碼',false); return; }
+    setMsg($('loginMsg'),'讀取中…',true);
+    run('getStatus',[p]).then(function(r){
+      if(!r.ok){ setMsg($('loginMsg'), r.msg, false); return; }
+      localStorage.setItem('mwd_phone', r.phone);
+      STATE.phone=r.phone; STATE.target=r.target;
+      $('shop').textContent = r.shop || '泰山明志 BRUNCH';
+      $('rwd').textContent = r.reward;
+      $('login').style.display='none';
+      $('main').style.display='block';
+      render(r);
+    }).catch(function(e){ setMsg($('loginMsg'),'連線失敗，請重試',false); });
+  }
+
+  function logout(){
+    localStorage.removeItem('mwd_phone');
+    $('main').style.display='none'; $('login').style.display='block';
+    $('phone').value=''; setMsg($('loginMsg'),'',true);
+  }
+
+  function render(r){
+    STATE.target = r.target;
+    $('pNum').textContent = r.points;
+    $('pTar').textContent = r.target;
+    var left = Math.max(0, r.target - r.points);
+    $('hint').textContent = left>0 ? ('再 '+left+' 點換好料') : '已集滿，可以兌換囉！';
+    // 進度圖
+    var g = $('grid'); g.innerHTML='';
+    for(var i=1;i<=r.target;i++){
+      var d=document.createElement('div');
+      d.className='stamp'+(i<=r.points?' on':'')+(i===r.target?' goal':'');
+      d.textContent = i===r.target ? '★' : i;
+      g.appendChild(d);
+    }
+    // 蓋章 / 兌換區切換
+    $('redeemBox').style.display = r.canRedeem ? 'block' : 'none';
+    $('stampBox').style.display  = r.canRedeem ? 'none'  : 'block';
+    if(r.stampedToday && !r.canRedeem){
+      $('stampBtn').disabled = true; $('stampBtn').textContent='今天已蓋章，明天再來';
+    } else {
+      $('stampBtn').disabled = false; $('stampBtn').textContent='蓋章 +1 點';
+    }
+  }
+
+  function stamp(){
+    var code = ($('code').value||'').trim();
+    if(!code){ setMsg($('msg'),'請輸入今日通關碼',false); return; }
+    $('stampBtn').disabled=true; setMsg($('msg'),'處理中…',true);
+    run('addStamp',[STATE.phone, code]).then(function(r){
+      if(!r.ok){ setMsg($('msg'), r.msg, false); $('stampBtn').disabled=false; if(r.points!=null) refresh(); return; }
+      $('code').value='';
+      setMsg($('msg'),'',true);
+      showPop('＋1', r.canRedeem ? '集滿囉！可以兌換 '+ $('rwd').textContent : '目前 '+r.points+' 點，加油！');
+      refresh();
+    }).catch(function(e){ setMsg($('msg'),'連線失敗，請重試',false); $('stampBtn').disabled=false; });
+  }
+
+  function refresh(){
+    run('getStatus',[STATE.phone]).then(function(r){ if(r.ok) render(r); });
+  }
+
+  function askRedeem(){
+    var sc = prompt('請店員輸入兌換碼');
+    if(sc===null) return;
+    setMsg($('msg'),'兌換中…',true);
+    run('redeem',[STATE.phone, sc]).then(function(r){
+      if(!r.ok){ setMsg($('msg'), r.msg, false); return; }
+      setMsg($('msg'),'',true);
+      showPop('🎉', '兌換成功！剩餘 '+r.points+' 點');
+      refresh();
+    }).catch(function(e){ setMsg($('msg'),'連線失敗，請重試',false); });
+  }
+
+  function showPop(big, msg){ $('popBig').textContent=big; $('popMsg').textContent=msg; $('pop').style.display='flex'; }
+  function hidePop(){ $('pop').style.display='none'; }
+</script>
+</body>
+</html>
