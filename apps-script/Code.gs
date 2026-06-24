@@ -17,6 +17,11 @@ const CFG = {
   REWARD: '指定餐點或飲料一份',       // 獎勵內容
   SHOP: 'MWD 泰山明志 BRUNCH',
   TZ: 'Asia/Taipei',
+  // ---- 定位檢查（防止密碼外流後遠端亂蓋）----
+  REQUIRE_LOCATION: true,           // 是否啟用定位檢查
+  SHOP_LAT: 25.055472543375735,     // 店家緯度
+  SHOP_LNG: 121.43159737244797,     // 店家經度
+  RADIUS_M: 150,                    // 允許蓋章的範圍（公尺）
 };
 
 /** 部署成網頁應用程式時的進入點 */
@@ -75,6 +80,15 @@ function findRow_(sh, phone) {
   return -1;
 }
 
+/** 兩點間距離（公尺）— Haversine */
+function distanceMeters_(lat1, lng1, lat2, lng2) {
+  const R = 6371000, toRad = function (d) { return d * Math.PI / 180; };
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 /* ---------- 給前端呼叫的 API（google.script.run） ---------- */
 
 /** 查詢點數，不加點 */
@@ -101,8 +115,8 @@ function getStatus(phone) {
   };
 }
 
-/** 蓋章 +1（需今日通關碼；每支手機每天限一次） */
-function addStamp(phone, code) {
+/** 蓋章 +1（需今日通關碼＋在店家範圍內；每支手機每天限一次） */
+function addStamp(phone, code, lat, lng) {
   ensureSetup_();
   phone = normPhone_(phone);
   if (phone.length < 8) return { ok: false, msg: '請輸入正確的手機號碼' };
@@ -112,6 +126,16 @@ function addStamp(phone, code) {
   try {
     if (String(code || '').trim() !== getConfig_('todayCode')) {
       return { ok: false, msg: '今日通關碼不正確' };
+    }
+    if (CFG.REQUIRE_LOCATION) {
+      const la = parseFloat(lat), ln = parseFloat(lng);
+      if (isNaN(la) || isNaN(ln)) {
+        return { ok: false, msg: '請開啟定位權限才能蓋章' };
+      }
+      const dist = distanceMeters_(la, ln, CFG.SHOP_LAT, CFG.SHOP_LNG);
+      if (dist > CFG.RADIUS_M) {
+        return { ok: false, msg: '請在店內掃碼蓋章（目前距離約 ' + Math.round(dist) + ' 公尺）' };
+      }
     }
     const today = todayStr_();
     const sh = getSheet_(CFG.POINTS_SHEET);

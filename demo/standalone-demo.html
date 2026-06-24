@@ -40,7 +40,7 @@
 <body>
 <div class="wrap">
   <div class="demo">
-    🧪 <b>單機試玩版</b>：今日通關碼 <b>1234</b>、店員兌換碼 <b>8888</b>。輸入通關碼正確會<b>自動 +1</b>。想測試連續蓋十天，點最下方的「下一天」。資料只存在這台瀏覽器，僅供體驗。
+    🧪 <b>單機試玩版</b>：今日通關碼 <b>1234</b>、店員兌換碼 <b>8888</b>。通關碼正確會<b>自動 +1</b>。最下方可按「下一天」測連續集點，或切換「在店內／在遠處」測試<b>定位擋人</b>。資料只存在這台瀏覽器，僅供體驗。
   </div>
   <div class="card">
     <h1>MWD 集點卡</h1>
@@ -77,6 +77,10 @@
     <div id="simDay" style="font-size:12.5px;color:#9a7b1f;margin-bottom:8px"></div>
     <button onclick="nextDay()" style="max-width:220px;margin:0 auto;background:var(--yolk);color:#5a4500">⏭️ 下一天（試玩）</button>
   </div>
+  <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--grey)">
+    模擬目前位置：
+    <button id="locBtn" onclick="toggleLoc()" style="display:inline-block;width:auto;padding:6px 16px;margin-left:6px;font-size:13px;background:var(--green)">在店內</button>
+  </div>
   <button class="reset" onclick="resetAll()">（試玩用）清除所有本機資料</button>
   <div class="foot">點數綁定手機號碼，不怕卡片遺失 · MWD 泰山明志 BRUNCH</div>
 </div>
@@ -89,8 +93,18 @@
 
 <script>
 /* ===== 設定（試玩版寫死在前端；正式版這些在後端/試算表） ===== */
-var CFG = { TARGET:10, REWARD:'指定餐點或飲料一份', TODAY_CODE:'1234', STAFF_CODE:'8888' };
+var CFG = { TARGET:10, REWARD:'指定餐點或飲料一份', TODAY_CODE:'1234', STAFF_CODE:'8888',
+            SHOP_LAT:25.055472543375735, SHOP_LNG:121.43159737244797, RADIUS_M:150 };
 var DB_KEY = 'mwd_demo_db';
+
+function distMeters(la1,ln1,la2,ln2){var R=6371000,r=function(d){return d*Math.PI/180;};
+  var dLa=r(la2-la1),dLn=r(ln2-ln1);
+  var a=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(r(la1))*Math.cos(r(la2))*Math.sin(dLn/2)*Math.sin(dLn/2);
+  return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
+function isFar(){return localStorage.getItem('mwd_demo_far')==='1';}
+function simLoc(){return isFar()?{lat:CFG.SHOP_LAT+0.01,lng:CFG.SHOP_LNG}:{lat:CFG.SHOP_LAT+0.0003,lng:CFG.SHOP_LNG};}
+function toggleLoc(){localStorage.setItem('mwd_demo_far',isFar()?'0':'1');updateLocBtn();}
+function updateLocBtn(){var b=$('locBtn');if(b){b.textContent=isFar()?'在 1 公里外':'在店內';b.style.background=isFar()?'#c0504f':'#528f66';}}
 
 function loadDB(){ try{ return JSON.parse(localStorage.getItem(DB_KEY)||'{}'); }catch(e){ return {}; } }
 function saveDB(db){ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
@@ -112,6 +126,8 @@ function addStamp(phone, code){
   phone=normPhone(phone);
   if(phone.length<8) return {ok:false,msg:'請輸入正確的手機號碼'};
   if(String(code).trim()!==CFG.TODAY_CODE) return {ok:false,msg:'今日通關碼不正確'};
+  var loc=simLoc(), dist=distMeters(loc.lat,loc.lng,CFG.SHOP_LAT,CFG.SHOP_LNG);
+  if(dist>CFG.RADIUS_M) return {ok:false,msg:'請在店內掃碼蓋章（目前距離約 '+Math.round(dist)+' 公尺）'};
   var db=loadDB(), u=db[phone]||{points:0,last:''};
   if(u.last===today()) return {ok:false,msg:'今天已經蓋過囉，明天再來！',points:u.points,target:CFG.TARGET};
   u.points+=1; u.last=today(); db[phone]=u; saveDB(db);
@@ -131,7 +147,7 @@ function redeem(phone, staffCode){
 var STATE={phone:'',target:10};
 function $(id){return document.getElementById(id);}
 function setMsg(el,t,ok){el.textContent=t||'';el.className='msg '+(ok?'ok':'err');}
-window.onload=function(){updateSimDay(); var s=localStorage.getItem('mwd_phone'); if(s){$('phone').value=s; login();}};
+window.onload=function(){updateSimDay(); updateLocBtn(); var s=localStorage.getItem('mwd_phone'); if(s){$('phone').value=s; login();}};
 
 function login(){
   var p=normPhone($('phone').value);
@@ -173,7 +189,7 @@ function askRedeem(){
   if(!r.ok){setMsg($('msg'),r.msg,false);return;}
   setMsg($('msg'),'',true); showPop('🎉','兌換成功！剩餘 '+r.points+' 點'); render(getStatus(STATE.phone));
 }
-function resetAll(){ if(confirm('清除這台裝置上所有試玩資料？')){localStorage.removeItem(DB_KEY);localStorage.removeItem('mwd_phone');localStorage.removeItem('mwd_demo_dayoffset');location.reload();} }
+function resetAll(){ if(confirm('清除這台裝置上所有試玩資料？')){localStorage.removeItem(DB_KEY);localStorage.removeItem('mwd_phone');localStorage.removeItem('mwd_demo_dayoffset');localStorage.removeItem('mwd_demo_far');location.reload();} }
 function showPop(b,m){$('popBig').textContent=b;$('popMsg').textContent=m;$('pop').style.display='flex';}
 function hidePop(){$('pop').style.display='none';}
 </script>

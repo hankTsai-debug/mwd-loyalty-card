@@ -67,9 +67,9 @@
       <div class="grid" id="grid"></div>
 
       <div id="stampBox">
-        <label>輸入櫃台的「今日通關碼」蓋章</label>
-        <input id="code" type="tel" inputmode="numeric" placeholder="今日通關碼" maxlength="6">
-        <button id="stampBtn" onclick="stamp()">蓋章 +1 點</button>
+        <label>輸入櫃台的「今日通關碼」，正確即自動蓋章 +1（需開啟定位）</label>
+        <input id="code" type="tel" inputmode="numeric" placeholder="今日通關碼" maxlength="6" oninput="onCodeInput()">
+        <div id="stampedNote" style="display:none;text-align:center;color:var(--grey);font-size:15px;margin-top:14px">今天已蓋章，明天再來 ✅</div>
       </div>
 
       <div id="redeemBox" style="display:none">
@@ -95,6 +95,20 @@
 
 <script>
   var STATE = { phone:'', target:10 };
+  var CODE_LEN = 4;            // 今日通關碼位數（請與後台 todayCode 一致）
+  var locCache = null, locTime = 0, stamping = false;
+
+  function getLocation(){
+    return new Promise(function(res, rej){
+      if(!navigator.geolocation){ rej('此裝置不支援定位'); return; }
+      if(locCache && (Date.now()-locTime) < 300000){ res(locCache); return; }
+      navigator.geolocation.getCurrentPosition(
+        function(p){ locCache={lat:p.coords.latitude,lng:p.coords.longitude}; locTime=Date.now(); res(locCache); },
+        function(err){ rej(err.code===1 ? '請允許定位權限才能蓋章' : '定位失敗，請重試'); },
+        { enableHighAccuracy:true, timeout:10000, maximumAge:60000 }
+      );
+    });
+  }
 
   function run(fn, args){
     return new Promise(function(res,rej){
@@ -148,24 +162,27 @@
     // 蓋章 / 兌換區切換
     $('redeemBox').style.display = r.canRedeem ? 'block' : 'none';
     $('stampBox').style.display  = r.canRedeem ? 'none'  : 'block';
-    if(r.stampedToday && !r.canRedeem){
-      $('stampBtn').disabled = true; $('stampBtn').textContent='今天已蓋章，明天再來';
-    } else {
-      $('stampBtn').disabled = false; $('stampBtn').textContent='蓋章 +1 點';
-    }
+    var done = r.stampedToday && !r.canRedeem;
+    $('code').style.display = done ? 'none' : 'block';
+    document.querySelector('#stampBox label').style.display = done ? 'none' : 'block';
+    $('stampedNote').style.display = done ? 'block' : 'none';
   }
 
-  function stamp(){
+  function onCodeInput(){
     var code = ($('code').value||'').trim();
-    if(!code){ setMsg($('msg'),'請輸入今日通關碼',false); return; }
-    $('stampBtn').disabled=true; setMsg($('msg'),'處理中…',true);
-    run('addStamp',[STATE.phone, code]).then(function(r){
-      if(!r.ok){ setMsg($('msg'), r.msg, false); $('stampBtn').disabled=false; if(r.points!=null) refresh(); return; }
+    if(code.length < CODE_LEN){ setMsg($('msg'),'',true); return; }
+    if(stamping) return;
+    stamping = true; setMsg($('msg'),'定位確認中…',true);
+    getLocation().then(function(loc){
+      return run('addStamp',[STATE.phone, code, loc.lat, loc.lng]);
+    }).then(function(r){
+      stamping = false;
+      if(!r.ok){ setMsg($('msg'), r.msg, false); if(r.points!=null) refresh(); return; }
       $('code').value='';
       setMsg($('msg'),'',true);
       showPop('＋1', r.canRedeem ? '集滿囉！可以兌換 '+ $('rwd').textContent : '目前 '+r.points+' 點，加油！');
       refresh();
-    }).catch(function(e){ setMsg($('msg'),'連線失敗，請重試',false); $('stampBtn').disabled=false; });
+    }).catch(function(e){ stamping=false; setMsg($('msg'), (typeof e==='string'?e:'蓋章失敗，請重試'), false); });
   }
 
   function refresh(){
