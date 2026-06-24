@@ -40,7 +40,7 @@
 <body>
 <div class="wrap">
   <div class="demo">
-    🧪 <b>單機試玩版</b>：今日通關碼 <b>1234</b>、店員兌換碼 <b>8888</b>。資料只存在這台裝置的瀏覽器，僅供體驗流程；正式上線請依 <code>部署教學.md</code> 部署到 Google。
+    🧪 <b>單機試玩版</b>：今日通關碼 <b>1234</b>、店員兌換碼 <b>8888</b>。輸入通關碼正確會<b>自動 +1</b>。想測試連續蓋十天，點最下方的「下一天」。資料只存在這台瀏覽器，僅供體驗。
   </div>
   <div class="card">
     <h1>MWD 集點卡</h1>
@@ -59,9 +59,9 @@
       <div class="grid" id="grid"></div>
 
       <div id="stampBox">
-        <label>輸入櫃台的「今日通關碼」蓋章</label>
-        <input id="code" type="tel" inputmode="numeric" placeholder="今日通關碼" maxlength="6">
-        <button id="stampBtn" onclick="stamp()">蓋章 +1 點</button>
+        <label>輸入櫃台的「今日通關碼」，正確即自動蓋章 +1</label>
+        <input id="code" type="tel" inputmode="numeric" placeholder="今日通關碼" maxlength="6" oninput="onCodeInput()">
+        <div id="stampedNote" style="display:none;text-align:center;color:var(--grey);font-size:15px;margin-top:14px">今天已蓋章，明天再來 ✅</div>
       </div>
 
       <div id="redeemBox" style="display:none">
@@ -72,6 +72,10 @@
       <div class="msg" id="msg"></div>
       <div style="text-align:center"><span class="link" onclick="logout()">換一個手機號碼</span></div>
     </div>
+  </div>
+  <div style="text-align:center;margin-top:18px">
+    <div id="simDay" style="font-size:12.5px;color:#9a7b1f;margin-bottom:8px"></div>
+    <button onclick="nextDay()" style="max-width:220px;margin:0 auto;background:var(--yolk);color:#5a4500">⏭️ 下一天（試玩）</button>
   </div>
   <button class="reset" onclick="resetAll()">（試玩用）清除所有本機資料</button>
   <div class="foot">點數綁定手機號碼，不怕卡片遺失 · MWD 泰山明志 BRUNCH</div>
@@ -91,7 +95,10 @@ var DB_KEY = 'mwd_demo_db';
 function loadDB(){ try{ return JSON.parse(localStorage.getItem(DB_KEY)||'{}'); }catch(e){ return {}; } }
 function saveDB(db){ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
 function normPhone(p){ return String(p||'').replace(/[^0-9]/g,''); }
-function today(){ var d=new Date(); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function dayOffset(){ return parseInt(localStorage.getItem('mwd_demo_dayoffset')||'0',10)||0; }
+function today(){ var d=new Date(); d.setDate(d.getDate()+dayOffset()); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function nextDay(){ localStorage.setItem('mwd_demo_dayoffset', dayOffset()+1); updateSimDay(); if(STATE.phone){ render(getStatus(STATE.phone)); $('code').focus(); } }
+function updateSimDay(){ var el=$('simDay'); if(el) el.textContent='模擬日期：第 '+(dayOffset()+1)+' 天（'+today()+'）'; }
 
 /* ===== 等同後端 API 的本機版 ===== */
 function getStatus(phone){
@@ -124,7 +131,7 @@ function redeem(phone, staffCode){
 var STATE={phone:'',target:10};
 function $(id){return document.getElementById(id);}
 function setMsg(el,t,ok){el.textContent=t||'';el.className='msg '+(ok?'ok':'err');}
-window.onload=function(){var s=localStorage.getItem('mwd_phone'); if(s){$('phone').value=s; login();}};
+window.onload=function(){updateSimDay(); var s=localStorage.getItem('mwd_phone'); if(s){$('phone').value=s; login();}};
 
 function login(){
   var p=normPhone($('phone').value);
@@ -145,12 +152,15 @@ function render(r){
     d.textContent=i===r.target?'★':i; g.appendChild(d);}
   $('redeemBox').style.display=r.canRedeem?'block':'none';
   $('stampBox').style.display=r.canRedeem?'none':'block';
-  if(r.stampedToday&&!r.canRedeem){$('stampBtn').disabled=true;$('stampBtn').textContent='今天已蓋章，明天再來';}
-  else{$('stampBtn').disabled=false;$('stampBtn').textContent='蓋章 +1 點';}
+  var done = r.stampedToday && !r.canRedeem;
+  $('code').style.display = done ? 'none' : 'block';
+  document.querySelector('#stampBox label').style.display = done ? 'none' : 'block';
+  $('stampedNote').style.display = done ? 'block' : 'none';
 }
-function stamp(){
+function onCodeInput(){
   var code=($('code').value||'').trim();
-  if(!code){setMsg($('msg'),'請輸入今日通關碼',false);return;}
+  if(code.length < CFG.TODAY_CODE.length){ setMsg($('msg'),'',true); return; }
+  if(code!==CFG.TODAY_CODE){ setMsg($('msg'),'今日通關碼不正確',false); return; }
   var r=addStamp(STATE.phone,code);
   if(!r.ok){setMsg($('msg'),r.msg,false);if(r.points!=null)render(getStatus(STATE.phone));return;}
   $('code').value=''; setMsg($('msg'),'',true);
@@ -163,7 +173,7 @@ function askRedeem(){
   if(!r.ok){setMsg($('msg'),r.msg,false);return;}
   setMsg($('msg'),'',true); showPop('🎉','兌換成功！剩餘 '+r.points+' 點'); render(getStatus(STATE.phone));
 }
-function resetAll(){ if(confirm('清除這台裝置上所有試玩資料？')){localStorage.removeItem(DB_KEY);localStorage.removeItem('mwd_phone');location.reload();} }
+function resetAll(){ if(confirm('清除這台裝置上所有試玩資料？')){localStorage.removeItem(DB_KEY);localStorage.removeItem('mwd_phone');localStorage.removeItem('mwd_demo_dayoffset');location.reload();} }
 function showPop(b,m){$('popBig').textContent=b;$('popMsg').textContent=m;$('pop').style.display='flex';}
 function hidePop(){$('pop').style.display='none';}
 </script>
