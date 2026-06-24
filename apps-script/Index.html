@@ -62,6 +62,7 @@
 
     <!-- 集點卡主畫面 -->
     <div id="main" style="display:none">
+      <div id="rule" style="background:#eef5f0;color:#2c603c;border-radius:12px;padding:9px 12px;font-size:13px;text-align:center;margin-bottom:10px"></div>
       <div class="pts"><b id="pNum">0</b><span> / <span id="pTar">10</span> 點</span></div>
       <div class="hint" id="hint">再 10 點換好料</div>
       <div class="grid" id="grid"></div>
@@ -133,6 +134,7 @@
       STATE.phone=r.phone; STATE.target=r.target;
       $('shop').textContent = r.shop || '泰山明志 BRUNCH';
       $('rwd').textContent = r.reward;
+      $('rule').textContent = 'ℹ️ 消費滿 $' + (r.minSpend||150) + ' 才可集點，請輸入餐點上的今日通關碼';
       $('login').style.display='none';
       $('main').style.display='block';
       render(r);

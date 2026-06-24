@@ -15,6 +15,7 @@ const CFG = {
   CONFIG_SHEET: 'Config',
   TARGET: 10,                       // 集滿幾點可兌換
   REWARD: '指定餐點或飲料一份',       // 獎勵內容
+  MIN_SPEND: 150,                   // 消費滿多少才可集點（顯示用；實際把關靠「出餐附碼」）
   SHOP: 'MWD 泰山明志 BRUNCH',
   TZ: 'Asia/Taipei',
   // ---- 定位檢查（防止密碼外流後遠端亂蓋）----
@@ -109,6 +110,7 @@ function getStatus(phone) {
     points: points,
     target: CFG.TARGET,
     reward: CFG.REWARD,
+    minSpend: CFG.MIN_SPEND,
     shop: CFG.SHOP,
     canRedeem: points >= CFG.TARGET,
     stampedToday: last === todayStr_(),

@@ -54,6 +54,7 @@
     </div>
 
     <div id="main" style="display:none">
+      <div id="rule" style="background:#eef5f0;color:#2c603c;border-radius:12px;padding:9px 12px;font-size:13px;text-align:center;margin-bottom:10px"></div>
       <div class="pts"><b id="pNum">0</b><span> / <span id="pTar">10</span> 點</span></div>
       <div class="hint" id="hint">再 10 點換好料</div>
       <div class="grid" id="grid"></div>
@@ -93,7 +94,7 @@
 
 <script>
 /* ===== 設定（試玩版寫死在前端；正式版這些在後端/試算表） ===== */
-var CFG = { TARGET:10, REWARD:'指定餐點或飲料一份', TODAY_CODE:'1234', STAFF_CODE:'8888',
+var CFG = { TARGET:10, REWARD:'指定餐點或飲料一份', TODAY_CODE:'1234', STAFF_CODE:'8888', MIN_SPEND:150,
             SHOP_LAT:25.055472543375735, SHOP_LNG:121.43159737244797, RADIUS_M:150 };
 var DB_KEY = 'mwd_demo_db';
 
@@ -155,7 +156,9 @@ function login(){
   var r=getStatus(p);
   if(!r.ok){setMsg($('loginMsg'),r.msg,false);return;}
   localStorage.setItem('mwd_phone',r.phone); STATE.phone=r.phone; STATE.target=r.target;
-  $('rwd').textContent=r.reward; $('login').style.display='none'; $('main').style.display='block'; render(r);
+  $('rwd').textContent=r.reward;
+  $('rule').textContent='ℹ️ 消費滿 $'+CFG.MIN_SPEND+' 才可集點，請輸入餐點上的今日通關碼';
+  $('login').style.display='none'; $('main').style.display='block'; render(r);
 }
 function logout(){localStorage.removeItem('mwd_phone');$('main').style.display='none';$('login').style.display='block';$('phone').value='';setMsg($('loginMsg'),'',true);}
 function render(r){
