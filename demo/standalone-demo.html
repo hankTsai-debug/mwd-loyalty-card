@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>MWD 集點卡（單機試玩版）</title>
+<style>
+  :root{--green:#528f66;--dgreen:#2c603c;--cream:#faf5e9;--grey:#777;--yolk:#f7c652;--line:#e0e8e2;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:"PingFang TC","Microsoft JhengHei",system-ui,sans-serif;background:var(--cream);color:var(--dgreen);}
+  .wrap{max-width:440px;margin:0 auto;padding:16px 18px 40px;}
+  .demo{background:#fff7e0;border:1.5px dashed var(--yolk);border-radius:14px;padding:10px 12px;font-size:12.5px;color:#9a7b1f;margin-bottom:14px;line-height:1.6}
+  .card{background:#fff;border:2px solid var(--green);border-radius:24px;padding:22px;box-shadow:0 6px 20px rgba(44,96,60,.08);}
+  h1{font-size:22px;text-align:center;margin:6px 0 2px;color:var(--dgreen)}
+  .sub{text-align:center;color:var(--grey);font-size:13px;margin-bottom:16px}
+  .pts{text-align:center;margin:10px 0 4px}
+  .pts b{font-size:46px;color:var(--green)} .pts span{font-size:18px;color:var(--grey)}
+  .hint{text-align:center;color:var(--grey);font-size:14px;margin-bottom:14px}
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:16px 0}
+  .stamp{aspect-ratio:1;border:2px solid var(--green);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;color:#cfe0d6}
+  .stamp.on{background:var(--green);color:#fff;border-color:var(--green)}
+  .stamp.goal{border-style:dashed}
+  label{display:block;font-size:13px;color:var(--grey);margin:14px 0 6px}
+  input{width:100%;padding:14px;border:1.5px solid var(--line);border-radius:14px;font-size:18px;text-align:center;letter-spacing:2px;outline:none}
+  input:focus{border-color:var(--green)}
+  button{width:100%;padding:15px;border:0;border-radius:16px;font-size:18px;font-weight:700;color:#fff;background:var(--green);margin-top:12px;cursor:pointer}
+  button:active{transform:scale(.99)} button.ghost{background:#fff;color:var(--green);border:2px solid var(--green)} button:disabled{opacity:.5}
+  .reward{background:var(--green);color:#fff;border-radius:16px;padding:16px;text-align:center;margin-top:8px}
+  .reward b{font-size:20px}
+  .msg{text-align:center;font-size:15px;margin-top:12px;min-height:20px}
+  .msg.ok{color:var(--green)} .msg.err{color:#c0504f}
+  .foot{text-align:center;color:var(--grey);font-size:12px;margin-top:18px}
+  .pop{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:9}
+  .pop .box{background:#fff;border-radius:22px;padding:26px;max-width:340px;width:86%;text-align:center}
+  .big{font-size:54px;line-height:1.1;margin:6px 0}
+  .link{display:inline-block;margin-top:10px;color:var(--green);font-size:13px;text-decoration:underline;cursor:pointer}
+  .reset{display:block;margin:14px auto 0;color:#b00;font-size:12px;text-decoration:underline;cursor:pointer;text-align:center;background:none;border:0;width:auto;padding:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="demo">
+    🧪 <b>單機試玩版</b>：今日通關碼 <b>1234</b>、店員兌換碼 <b>8888</b>。資料只存在這台裝置的瀏覽器，僅供體驗流程；正式上線請依 <code>部署教學.md</code> 部署到 Google。
+  </div>
+  <div class="card">
+    <h1>MWD 集點卡</h1>
+    <div class="sub">泰山明志 BRUNCH</div>
+
+    <div id="login">
+      <label>請輸入手機號碼當作你的集點帳號</label>
+      <input id="phone" type="tel" inputmode="numeric" placeholder="09xxxxxxxx" maxlength="10">
+      <button onclick="login()">開啟我的集點卡</button>
+      <div class="msg" id="loginMsg"></div>
+    </div>
+
+    <div id="main" style="display:none">
+      <div class="pts"><b id="pNum">0</b><span> / <span id="pTar">10</span> 點</span></div>
+      <div class="hint" id="hint">再 10 點換好料</div>
+      <div class="grid" id="grid"></div>
+
+      <div id="stampBox">
+        <label>輸入櫃台的「今日通關碼」蓋章</label>
+        <input id="code" type="tel" inputmode="numeric" placeholder="今日通關碼" maxlength="6">
+        <button id="stampBtn" onclick="stamp()">蓋章 +1 點</button>
+      </div>
+
+      <div id="redeemBox" style="display:none">
+        <div class="reward">🎉 點數已集滿！可兌換 <b id="rwd">指定餐點或飲料一份</b></div>
+        <button class="ghost" onclick="askRedeem()">出示給店員兌換</button>
+      </div>
+
+      <div class="msg" id="msg"></div>
+      <div style="text-align:center"><span class="link" onclick="logout()">換一個手機號碼</span></div>
+    </div>
+  </div>
+  <button class="reset" onclick="resetAll()">（試玩用）清除所有本機資料</button>
+  <div class="foot">點數綁定手機號碼，不怕卡片遺失 · MWD 泰山明志 BRUNCH</div>
+</div>
+
+<div class="pop" id="pop"><div class="box">
+  <div class="big" id="popBig">＋1</div>
+  <div id="popMsg" style="color:var(--dgreen);font-size:17px"></div>
+  <button onclick="hidePop()">好</button>
+</div></div>
+
+<script>
+/* ===== 設定（試玩版寫死在前端；正式版這些在後端/試算表） ===== */
+var CFG = { TARGET:10, REWARD:'指定餐點或飲料一份', TODAY_CODE:'1234', STAFF_CODE:'8888' };
+var DB_KEY = 'mwd_demo_db';
+
+function loadDB(){ try{ return JSON.parse(localStorage.getItem(DB_KEY)||'{}'); }catch(e){ return {}; } }
+function saveDB(db){ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
+function normPhone(p){ return String(p||'').replace(/[^0-9]/g,''); }
+function today(){ var d=new Date(); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+
+/* ===== 等同後端 API 的本機版 ===== */
+function getStatus(phone){
+  phone=normPhone(phone);
+  if(phone.length<8) return {ok:false,msg:'請輸入正確的手機號碼'};
+  var db=loadDB(), u=db[phone]||{points:0,last:''};
+  return {ok:true,phone:phone,points:u.points,target:CFG.TARGET,reward:CFG.REWARD,
+    canRedeem:u.points>=CFG.TARGET, stampedToday:u.last===today()};
+}
+function addStamp(phone, code){
+  phone=normPhone(phone);
+  if(phone.length<8) return {ok:false,msg:'請輸入正確的手機號碼'};
+  if(String(code).trim()!==CFG.TODAY_CODE) return {ok:false,msg:'今日通關碼不正確'};
+  var db=loadDB(), u=db[phone]||{points:0,last:''};
+  if(u.last===today()) return {ok:false,msg:'今天已經蓋過囉，明天再來！',points:u.points,target:CFG.TARGET};
+  u.points+=1; u.last=today(); db[phone]=u; saveDB(db);
+  return {ok:true,points:u.points,target:CFG.TARGET,reward:CFG.REWARD,canRedeem:u.points>=CFG.TARGET,msg:'蓋章成功 +1'};
+}
+function redeem(phone, staffCode){
+  phone=normPhone(phone);
+  if(String(staffCode).trim()!==CFG.STAFF_CODE) return {ok:false,msg:'店員兌換碼不正確'};
+  var db=loadDB(), u=db[phone];
+  if(!u) return {ok:false,msg:'查無此號碼'};
+  if(u.points<CFG.TARGET) return {ok:false,msg:'點數不足，無法兌換'};
+  u.points-=CFG.TARGET; db[phone]=u; saveDB(db);
+  return {ok:true,points:u.points,target:CFG.TARGET,msg:'兌換成功！'};
+}
+
+/* ===== UI ===== */
+var STATE={phone:'',target:10};
+function $(id){return document.getElementById(id);}
+function setMsg(el,t,ok){el.textContent=t||'';el.className='msg '+(ok?'ok':'err');}
+window.onload=function(){var s=localStorage.getItem('mwd_phone'); if(s){$('phone').value=s; login();}};
+
+function login(){
+  var p=normPhone($('phone').value);
+  if(p.length<8){setMsg($('loginMsg'),'請輸入正確的手機號碼',false);return;}
+  var r=getStatus(p);
+  if(!r.ok){setMsg($('loginMsg'),r.msg,false);return;}
+  localStorage.setItem('mwd_phone',r.phone); STATE.phone=r.phone; STATE.target=r.target;
+  $('rwd').textContent=r.reward; $('login').style.display='none'; $('main').style.display='block'; render(r);
+}
+function logout(){localStorage.removeItem('mwd_phone');$('main').style.display='none';$('login').style.display='block';$('phone').value='';setMsg($('loginMsg'),'',true);}
+function render(r){
+  STATE.target=r.target; $('pNum').textContent=r.points; $('pTar').textContent=r.target;
+  var left=Math.max(0,r.target-r.points);
+  $('hint').textContent=left>0?('再 '+left+' 點換好料'):'已集滿，可以兌換囉！';
+  var g=$('grid'); g.innerHTML='';
+  for(var i=1;i<=r.target;i++){var d=document.createElement('div');
+    d.className='stamp'+(i<=r.points?' on':'')+(i===r.target?' goal':'');
+    d.textContent=i===r.target?'★':i; g.appendChild(d);}
+  $('redeemBox').style.display=r.canRedeem?'block':'none';
+  $('stampBox').style.display=r.canRedeem?'none':'block';
+  if(r.stampedToday&&!r.canRedeem){$('stampBtn').disabled=true;$('stampBtn').textContent='今天已蓋章，明天再來';}
+  else{$('stampBtn').disabled=false;$('stampBtn').textContent='蓋章 +1 點';}
+}
+function stamp(){
+  var code=($('code').value||'').trim();
+  if(!code){setMsg($('msg'),'請輸入今日通關碼',false);return;}
+  var r=addStamp(STATE.phone,code);
+  if(!r.ok){setMsg($('msg'),r.msg,false);if(r.points!=null)render(getStatus(STATE.phone));return;}
+  $('code').value=''; setMsg($('msg'),'',true);
+  showPop('＋1', r.canRedeem?('集滿囉！可兌換 '+$('rwd').textContent):('目前 '+r.points+' 點，加油！'));
+  render(getStatus(STATE.phone));
+}
+function askRedeem(){
+  var sc=prompt('請店員輸入兌換碼（試玩版：8888）'); if(sc===null)return;
+  var r=redeem(STATE.phone,sc);
+  if(!r.ok){setMsg($('msg'),r.msg,false);return;}
+  setMsg($('msg'),'',true); showPop('🎉','兌換成功！剩餘 '+r.points+' 點'); render(getStatus(STATE.phone));
+}
+function resetAll(){ if(confirm('清除這台裝置上所有試玩資料？')){localStorage.removeItem(DB_KEY);localStorage.removeItem('mwd_phone');location.reload();} }
+function showPop(b,m){$('popBig').textContent=b;$('popMsg').textContent=m;$('pop').style.display='flex';}
+function hidePop(){$('pop').style.display='none';}
+</script>
+</body>
+</html>
