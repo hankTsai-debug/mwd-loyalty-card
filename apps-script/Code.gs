@@ -15,9 +15,9 @@ const CFG = {
   CONFIG_SHEET: 'Config',
   LOG_SHEET: 'Log',                 // 每次蓋章的座標紀錄（供日後分析）
   TARGET: 10,                       // 集滿幾點可兌換
-  REWARD: '指定餐點或飲料一份',       // 獎勵內容
+  REWARD: '炸物拚盤＋Snoopy 鑰匙圈（送完為止）', // 獎勵內容
   MIN_SPEND_WEEKDAY: 180,           // 平日（週二～週五）最低消費
-  MIN_SPEND_WEEKEND: 280,           // 假日（週六、週日）最低消費
+  MIN_SPEND_WEEKEND: 300,           // 假日（週六、週日）最低消費
   SHOP: 'MWD 泰山明志 BRUNCH',
   TZ: 'Asia/Taipei',
   CODE_MODE: 'auto',                // 'auto' = 系統依日期自動產生今日通關碼；'manual' = 用 Config 的 todayCode
