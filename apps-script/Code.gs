@@ -125,7 +125,8 @@ function getConfig_(key) {
 }
 
 function normPhone_(phone) {
-  return String(phone || '').replace(/[^0-9]/g, '');
+  // 去掉非數字，並去掉開頭的 0（避免「試算表把 0912... 存成數字 912... 掉了前導 0」造成查無資料）
+  return String(phone || '').replace(/[^0-9]/g, '').replace(/^0+/, '');
 }
 
 function todayStr_() {
