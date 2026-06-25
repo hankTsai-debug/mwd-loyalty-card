@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root{--green:#528f66;--dgreen:#2c603c;--cream:#faf5e9;--grey:#777;--line:#e0e8e2;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"PingFang TC","Microsoft JhengHei",system-ui,sans-serif;background:var(--cream);color:var(--dgreen);}
+  .wrap{max-width:460px;margin:0 auto;padding:24px 18px;}
+  .card{background:#fff;border:2px solid var(--green);border-radius:24px;padding:24px;text-align:center;box-shadow:0 6px 20px rgba(44,96,60,.08);}
+  h1{font-size:20px;margin:4px 0 2px}
+  .sub{color:var(--grey);font-size:13px;margin-bottom:18px}
+  label{display:block;font-size:13px;color:var(--grey);margin:12px 0 6px}
+  input{width:100%;padding:14px;border:1.5px solid var(--line);border-radius:14px;font-size:18px;text-align:center;letter-spacing:3px;outline:none}
+  input:focus{border-color:var(--green)}
+  button{width:100%;padding:15px;border:0;border-radius:16px;font-size:17px;font-weight:700;color:#fff;background:var(--green);margin-top:12px;cursor:pointer}
+  button.ghost{background:#fff;color:var(--green);border:2px solid var(--green)}
+  .codeBox{margin:8px 0 4px}
+  .codeBox .lbl{color:var(--grey);font-size:14px}
+  .codeBox .code{font-size:80px;font-weight:800;letter-spacing:10px;color:var(--green);line-height:1.1}
+  .date{color:var(--grey);font-size:14px;margin-top:6px}
+  .note{background:#eef5f0;border-radius:12px;padding:12px;font-size:13px;margin-top:16px;line-height:1.7;text-align:left;color:var(--dgreen)}
+  .msg{color:#c0504f;font-size:14px;margin-top:10px;min-height:18px}
+
+  /* 列印區 */
+  #printArea{display:none}
+  .sheet{display:grid;grid-template-columns:repeat(2,1fr);gap:8mm;padding:6mm}
+  .pcard{border:2px solid #2c603c;border-radius:6mm;padding:6mm 4mm;text-align:center;page-break-inside:avoid}
+  .pcard .shop{font-size:11pt;color:#2c603c;font-weight:700}
+  .pcard .lbl2{font-size:10pt;color:#777;margin-top:2mm}
+  .pcard .code2{font-size:34pt;font-weight:800;letter-spacing:6px;color:#2c603c;margin:1mm 0}
+  .pcard .dt{font-size:12pt;color:#2c603c;font-weight:700}
+  .pcard .rule{font-size:8pt;color:#777;margin-top:2mm}
+  .pcard.closed{opacity:.5}
+  @media print{
+    body{background:#fff}
+    .wrap{display:none}
+    #printArea{display:block}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>MWD 店員管理頁</h1>
+    <div class="sub">查看／列印今日通關碼，免手寫</div>
+
+    <div id="login">
+      <label>請輸入管理 PIN</label>
+      <input id="pin" type="tel" inputmode="numeric" placeholder="管理 PIN" maxlength="8">
+      <button onclick="check()">登入</button>
+      <div class="msg" id="msg"></div>
+    </div>
+
+    <div id="show" style="display:none">
+      <div class="codeBox">
+        <div class="lbl">今日通關碼</div>
+        <div class="code" id="code">----</div>
+        <div class="date" id="date"></div>
+      </div>
+      <button onclick="printToday()">🖨️ 列印今日碼卡（同一頁多張，今天用）</button>
+      <button class="ghost" onclick="printMonth()">🖨️ 列印未來 30 天碼卡（每天一張，印一次用整月）</button>
+      <div class="note">
+        免手寫做法：<br>
+        ① 每天早上印「今日碼卡」一頁（多張同碼），裁開放出餐區，當天用、收工丟。<br>
+        ② 或一次印「未來 30 天」，每天撕當天那張用，一個月印一次。<br>
+        出餐時只在達最低消費的餐點托盤放一張。碼每天 00:00 自動換新。
+      </div>
+      <div class="msg" id="msg2"></div>
+    </div>
+  </div>
+</div>
+
+<div id="printArea"></div>
+
+<script>
+  var PIN='';
+  function $(id){return document.getElementById(id);}
+  function check(){
+    PIN=($('pin').value||'').trim();
+    if(!PIN){$('msg').textContent='請輸入 PIN';return;}
+    $('msg').textContent='查詢中…';
+    google.script.run.withSuccessHandler(function(r){
+      if(!r.ok){$('msg').textContent=r.msg;return;}
+      $('msg').textContent='';
+      $('code').textContent=r.code;
+      $('date').textContent=r.date+(r.mode==='manual'?'（手動模式）':'（自動產生）');
+      $('login').style.display='none'; $('show').style.display='block';
+    }).withFailureHandler(function(e){$('msg').textContent='連線失敗，請重試';}).adminTodayCode(PIN);
+  }
+
+  function pcard(dt, wk, code, closed, rule){
+    return '<div class="pcard'+(closed?' closed':'')+'">'+
+      '<div class="shop">MWD 泰山明志 BRUNCH</div>'+
+      (dt?'<div class="dt">'+dt+' '+wk+'</div>':'')+
+      '<div class="lbl2">今日通關碼</div>'+
+      '<div class="code2">'+code+'</div>'+
+      '<div class="rule">'+(closed?'週一公休':(rule||'達最低消費才放卡 · 掃 QR 輸入此碼集點'))+'</div>'+
+    '</div>';
+  }
+
+  function printToday(){
+    var code=$('code').textContent, dt=$('date').textContent.split('（')[0];
+    var cards=''; for(var i=0;i<8;i++) cards+=pcard('', '', code, false);
+    $('printArea').innerHTML='<div class="sheet">'+cards+'</div>';
+    window.print();
+  }
+
+  function printMonth(){
+    $('msg2').textContent='產生中…';
+    google.script.run.withSuccessHandler(function(r){
+      if(!r.ok){$('msg2').textContent=r.msg;return;}
+      $('msg2').textContent='';
+      var cards=''; r.list.forEach(function(d){ cards+=pcard(d.md, d.wk, d.code, d.closed); });
+      $('printArea').innerHTML='<div class="sheet">'+cards+'</div>';
+      window.print();
+    }).withFailureHandler(function(e){$('msg2').textContent='連線失敗，請重試';}).upcomingCodes(PIN, 30);
+  }
+</script>
+</body>
+</html>

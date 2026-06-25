@@ -19,6 +19,7 @@ const CFG = {
   MIN_SPEND_WEEKEND: 280,           // 假日（週六、週日）最低消費
   SHOP: 'MWD 泰山明志 BRUNCH',
   TZ: 'Asia/Taipei',
+  CODE_MODE: 'auto',                // 'auto' = 系統依日期自動產生今日通關碼；'manual' = 用 Config 的 todayCode
   // ---- 定位檢查（防止密碼外流後遠端亂蓋）----
   REQUIRE_LOCATION: true,           // 是否啟用定位檢查
   SHOP_LAT: 25.055472543375735,     // 店家緯度
@@ -27,8 +28,10 @@ const CFG = {
 };
 
 /** 部署成網頁應用程式時的進入點 */
-function doGet() {
-  return HtmlService.createHtmlOutputFromFile('Index')
+function doGet(e) {
+  const page = (e && e.parameter && e.parameter.page) ? e.parameter.page : '';
+  const file = (page === 'admin') ? 'Admin' : 'Index';   // 加 ?page=admin 開店員管理頁
+  return HtmlService.createHtmlOutputFromFile(file)
     .setTitle('MWD 集點卡')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -50,11 +53,65 @@ function ensureSetup_() {
     p.appendRow(['phone', 'points', 'lastStampDate', 'updatedAt']);
   }
   const c = getSheet_(CFG.CONFIG_SHEET);
-  if (c.getLastRow() === 0) {
-    c.appendRow(['key', 'value']);
-    c.appendRow(['todayCode', '1234']); // 每天早上改這格（櫃台小白板上的數字）
-    c.appendRow(['staffCode', '8888']); // 兌換用，店員私下保管，別公開
+  if (c.getLastRow() === 0) c.appendRow(['key', 'value']);
+  ensureConfigKey_('todayCode', '1234');  // 只有 CODE_MODE='manual' 時才會用到
+  ensureConfigKey_('staffCode', '8888');  // 兌換用，店員私下保管
+  ensureConfigKey_('adminPin', '2468');   // 管理頁密碼，店員私下保管
+  ensureConfigKey_('codeSalt', 'mwd-' + Math.random().toString(36).slice(2, 10)); // 自動碼用的秘密種子，請勿外流
+}
+
+function ensureConfigKey_(key, val) {
+  const c = getSheet_(CFG.CONFIG_SHEET);
+  const data = c.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) if (String(data[i][0]).trim() === key) return;
+  c.appendRow([key, val]);
+}
+
+/** 依「日期＋秘密種子」算出某天的 4 位數通關碼 */
+function getCodeForDate_(dateStr) {
+  const seed = dateStr + '|' + getConfig_('codeSalt');
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, seed);
+  let n = 0;
+  for (let i = 0; i < 4; i++) n = (n * 256 + (bytes[i] & 0xff)) % 10000;
+  return ('000' + n).slice(-4);
+}
+
+/** 今日通關碼：auto = 自動算出；manual = 讀 Config 的 todayCode */
+function getTodayCode_() {
+  if (String(CFG.CODE_MODE) === 'manual') return getConfig_('todayCode');
+  return getCodeForDate_(todayStr_());
+}
+
+/** 店員管理頁呼叫：輸入管理 PIN，回傳今天的通關碼 */
+function adminTodayCode(pin) {
+  ensureSetup_();
+  if (String(pin || '').trim() !== getConfig_('adminPin')) return { ok: false, msg: '管理 PIN 不正確' };
+  return { ok: true, code: getTodayCode_(), date: todayStr_(), mode: CFG.CODE_MODE };
+}
+
+/** 管理頁列印用：回傳未來 days 天的日期與通關碼（可印成碼卡，免手寫） */
+function upcomingCodes(pin, days) {
+  ensureSetup_();
+  if (String(pin || '').trim() !== getConfig_('adminPin')) return { ok: false, msg: '管理 PIN 不正確' };
+  days = Math.min(Math.max(parseInt(days, 10) || 30, 1), 60);
+  const wk = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '日' };
+  const base = new Date();
+  const out = [];
+  for (let i = 0; i < days; i++) {
+    const dt = new Date(base.getTime());
+    dt.setDate(dt.getDate() + i);
+    const ds = Utilities.formatDate(dt, CFG.TZ, 'yyyy-MM-dd');
+    const dow = Number(Utilities.formatDate(dt, CFG.TZ, 'u')); // 1=Mon..7=Sun
+    const closed = (dow === 1); // 週一公休
+    out.push({
+      date: ds,
+      md: Utilities.formatDate(dt, CFG.TZ, 'M/d'),
+      wk: '週' + wk[dow],
+      closed: closed,
+      code: closed ? '—' : (CFG.CODE_MODE === 'manual' ? getConfig_('todayCode') : getCodeForDate_(ds)),
+    });
   }
+  return { ok: true, shop: CFG.SHOP, list: out };
 }
 
 function getConfig_(key) {
@@ -135,7 +192,7 @@ function addStamp(phone, code, lat, lng) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    if (String(code || '').trim() !== getConfig_('todayCode')) {
+    if (String(code || '').trim() !== getTodayCode_()) {
       return { ok: false, msg: '今日通關碼不正確' };
     }
     if (CFG.REQUIRE_LOCATION) {

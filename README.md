@@ -23,8 +23,9 @@
 ```
 mwd-loyalty-card/
 ├── apps-script/          # 部署到 Google Apps Script 的程式
-│   ├── Code.gs           # 後端：蓋章、查點、兌換、防作弊邏輯
+│   ├── Code.gs           # 後端：蓋章、查點、兌換、自動產碼、防作弊
 │   ├── Index.html        # 前端：客人看到的網頁集點卡
+│   ├── Admin.html        # 店員管理頁：看／列印今日通關碼（免手寫）
 │   └── appsscript.json   # Apps Script 設定檔
 ├── docs/
 │   └── 部署教學.md        # 一步一步部署說明
