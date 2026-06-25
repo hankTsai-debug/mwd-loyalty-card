@@ -40,7 +40,7 @@
 <body>
 <div class="wrap">
   <div class="demo">
-    🧪 <b>單機試玩版</b>：今日通關碼 <b>1234</b>、店員兌換碼 <b>8888</b>。通關碼正確會<b>自動 +1</b>。最下方可按「下一天」測連續集點，或切換「在店內／在遠處」測試<b>定位擋人</b>。資料只存在這台瀏覽器，僅供體驗。
+    🧪 <b>單機試玩版</b>：今日通關碼 <b>1234</b>、店員兌換碼 <b>8888</b>。通關碼正確會<b>自動 +1</b>。最下方可按「下一天」測連續集點；切換「在店內／在遠處」時，蓋章會<b>記錄座標但不擋人</b>（目前定位為純記錄模式）。資料只存在這台瀏覽器，僅供體驗。
   </div>
   <div class="card">
     <h1>MWD 集點卡</h1>
@@ -81,6 +81,7 @@
   <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--grey)">
     模擬目前位置：
     <button id="locBtn" onclick="toggleLoc()" style="display:inline-block;width:auto;padding:6px 16px;margin-left:6px;font-size:13px;background:var(--green)">在店內</button>
+    <div style="margin-top:6px;font-size:11.5px">蓋章會記錄距離，目前不擋人</div>
   </div>
   <button class="reset" onclick="resetAll()">（試玩用）清除所有本機資料</button>
   <div class="foot">點數綁定手機號碼，不怕卡片遺失 · MWD 泰山明志 BRUNCH</div>
@@ -95,7 +96,7 @@
 <script>
 /* ===== 設定（試玩版寫死在前端；正式版這些在後端/試算表） ===== */
 var CFG = { TARGET:10, REWARD:'指定餐點或飲料一份', TODAY_CODE:'1234', STAFF_CODE:'8888',
-            MIN_SPEND_WEEKDAY:180, MIN_SPEND_WEEKEND:280,
+            MIN_SPEND_WEEKDAY:180, MIN_SPEND_WEEKEND:280, REQUIRE_LOCATION:false,
             SHOP_LAT:25.055472543375735, SHOP_LNG:121.43159737244797, RADIUS_M:150 };
 var DB_KEY = 'mwd_demo_db';
 
@@ -131,12 +132,15 @@ function addStamp(phone, code){
   phone=normPhone(phone);
   if(phone.length<8) return {ok:false,msg:'請輸入正確的手機號碼'};
   if(String(code).trim()!==CFG.TODAY_CODE) return {ok:false,msg:'今日通關碼不正確'};
-  var loc=simLoc(), dist=distMeters(loc.lat,loc.lng,CFG.SHOP_LAT,CFG.SHOP_LNG);
-  if(dist>CFG.RADIUS_M) return {ok:false,msg:'請在店內掃碼蓋章（目前距離約 '+Math.round(dist)+' 公尺）'};
+  var loc=simLoc(), dist=Math.round(distMeters(loc.lat,loc.lng,CFG.SHOP_LAT,CFG.SHOP_LNG));
+  if(CFG.REQUIRE_LOCATION && dist>CFG.RADIUS_M) return {ok:false,msg:'請在店內掃碼蓋章（目前距離約 '+dist+' 公尺）'};
   var db=loadDB(), u=db[phone]||{points:0,last:''};
   if(u.last===today()) return {ok:false,msg:'今天已經蓋過囉，明天再來！',points:u.points,target:CFG.TARGET};
   u.points+=1; u.last=today(); db[phone]=u; saveDB(db);
-  return {ok:true,points:u.points,target:CFG.TARGET,reward:CFG.REWARD,canRedeem:u.points>=CFG.TARGET,msg:'蓋章成功 +1'};
+  var log=JSON.parse(localStorage.getItem('mwd_demo_log')||'[]');
+  log.push({t:new Date().toLocaleString(),phone:phone,dist:dist,within:dist<=CFG.RADIUS_M});
+  localStorage.setItem('mwd_demo_log',JSON.stringify(log));
+  return {ok:true,points:u.points,target:CFG.TARGET,reward:CFG.REWARD,canRedeem:u.points>=CFG.TARGET,recordedDist:dist,msg:'蓋章成功 +1'};
 }
 function redeem(phone, staffCode){
   phone=normPhone(phone);
@@ -187,7 +191,7 @@ function onCodeInput(){
   if(code!==CFG.TODAY_CODE){ setMsg($('msg'),'今日通關碼不正確',false); return; }
   var r=addStamp(STATE.phone,code);
   if(!r.ok){setMsg($('msg'),r.msg,false);if(r.points!=null)render(getStatus(STATE.phone));return;}
-  $('code').value=''; setMsg($('msg'),'',true);
+  $('code').value=''; setMsg($('msg'),'已記錄座標：距離店家約 '+r.recordedDist+' 公尺（目前不擋人）',true);
   showPop('＋1', r.canRedeem?('集滿囉！可兌換 '+$('rwd').textContent):('目前 '+r.points+' 點，加油！'));
   render(getStatus(STATE.phone));
 }

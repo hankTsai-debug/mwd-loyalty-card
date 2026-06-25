@@ -131,7 +131,7 @@
     run('getStatus',[p]).then(function(r){
       if(!r.ok){ setMsg($('loginMsg'), r.msg, false); return; }
       localStorage.setItem('mwd_phone', r.phone);
-      STATE.phone=r.phone; STATE.target=r.target;
+      STATE.phone=r.phone; STATE.target=r.target; STATE.requireLocation=r.requireLocation;
       $('shop').textContent = r.shop || '泰山明志 BRUNCH';
       $('rwd').textContent = r.reward;
       $('rule').textContent = 'ℹ️ 今日消費滿 $' + r.minSpend + ' 才可集點（平日 $' + r.minWeekday + '／假日 $' + r.minWeekend + '）· 請輸入餐點上的今日通關碼';
@@ -174,17 +174,22 @@
     var code = ($('code').value||'').trim();
     if(code.length < CODE_LEN){ setMsg($('msg'),'',true); return; }
     if(stamping) return;
-    stamping = true; setMsg($('msg'),'定位確認中…',true);
-    getLocation().then(function(loc){
-      return run('addStamp',[STATE.phone, code, loc.lat, loc.lng]);
-    }).then(function(r){
-      stamping = false;
-      if(!r.ok){ setMsg($('msg'), r.msg, false); if(r.points!=null) refresh(); return; }
-      $('code').value='';
-      setMsg($('msg'),'',true);
-      showPop('＋1', r.canRedeem ? '集滿囉！可以兌換 '+ $('rwd').textContent : '目前 '+r.points+' 點，加油！');
-      refresh();
-    }).catch(function(e){ stamping=false; setMsg($('msg'), (typeof e==='string'?e:'蓋章失敗，請重試'), false); });
+    stamping = true; setMsg($('msg'), STATE.requireLocation ? '定位確認中…' : '處理中…', true);
+    getLocation().then(function(loc){ return {lat:loc.lat, lng:loc.lng}; })
+      .catch(function(e){
+        if(STATE.requireLocation){ throw e; }   // 需定位才擋人
+        return {lat:null, lng:null};             // 不需定位：照樣蓋章，座標留空
+      })
+      .then(function(loc){ return run('addStamp',[STATE.phone, code, loc.lat, loc.lng]); })
+      .then(function(r){
+        stamping = false;
+        if(!r.ok){ setMsg($('msg'), r.msg, false); if(r.points!=null) refresh(); return; }
+        $('code').value='';
+        setMsg($('msg'),'',true);
+        showPop('＋1', r.canRedeem ? '集滿囉！可以兌換 '+ $('rwd').textContent : '目前 '+r.points+' 點，加油！');
+        refresh();
+      })
+      .catch(function(e){ stamping=false; setMsg($('msg'), (typeof e==='string'?e:'蓋章失敗，請重試'), false); });
   }
 
   function refresh(){

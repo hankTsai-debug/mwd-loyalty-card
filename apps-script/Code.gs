@@ -13,6 +13,7 @@
 const CFG = {
   POINTS_SHEET: 'Points',
   CONFIG_SHEET: 'Config',
+  LOG_SHEET: 'Log',                 // 每次蓋章的座標紀錄（供日後分析）
   TARGET: 10,                       // 集滿幾點可兌換
   REWARD: '指定餐點或飲料一份',       // 獎勵內容
   MIN_SPEND_WEEKDAY: 180,           // 平日（週二～週五）最低消費
@@ -20,11 +21,11 @@ const CFG = {
   SHOP: 'MWD 泰山明志 BRUNCH',
   TZ: 'Asia/Taipei',
   CODE_MODE: 'auto',                // 'auto' = 系統依日期自動產生今日通關碼；'manual' = 用 Config 的 todayCode
-  // ---- 定位檢查（防止密碼外流後遠端亂蓋）----
-  REQUIRE_LOCATION: true,           // 是否啟用定位檢查
+  // ---- 定位（目前只記錄、不擋人；之後分析完再決定是否開啟封鎖）----
+  REQUIRE_LOCATION: false,          // false = 不因距離擋人，但仍記錄座標到 Log
   SHOP_LAT: 25.055472543375735,     // 店家緯度
   SHOP_LNG: 121.43159737244797,     // 店家經度
-  RADIUS_M: 150,                    // 允許蓋章的範圍（公尺）
+  RADIUS_M: 150,                    // 範圍（公尺）：開啟封鎖時用、也用來標記紀錄是否在範圍內
 };
 
 /** 部署成網頁應用程式時的進入點 */
@@ -145,6 +146,19 @@ function findRow_(sh, phone) {
   return -1;
 }
 
+/** 記錄一次蓋章的座標與距離（供日後分析；不阻擋流程） */
+function logStamp_(phone, lat, lng, distM, within, pointsAfter) {
+  try {
+    const sh = getSheet_(CFG.LOG_SHEET);
+    if (sh.getLastRow() === 0) {
+      sh.appendRow(['time', 'phone', 'lat', 'lng', 'distM', 'within' + CFG.RADIUS_M + 'm', 'pointsAfter']);
+    }
+    sh.appendRow([new Date(), phone, lat, lng, distM, within, pointsAfter]);
+  } catch (err) {
+    // 記錄失敗不影響蓋章
+  }
+}
+
 /** 兩點間距離（公尺）— Haversine */
 function distanceMeters_(lat1, lng1, lat2, lng2) {
   const R = 6371000, toRad = function (d) { return d * Math.PI / 180; };
@@ -177,6 +191,7 @@ function getStatus(phone) {
     minSpend: minSpend_(),
     minWeekday: CFG.MIN_SPEND_WEEKDAY,
     minWeekend: CFG.MIN_SPEND_WEEKEND,
+    requireLocation: CFG.REQUIRE_LOCATION,
     shop: CFG.SHOP,
     canRedeem: points >= CFG.TARGET,
     stampedToday: last === todayStr_(),
@@ -195,12 +210,12 @@ function addStamp(phone, code, lat, lng) {
     if (String(code || '').trim() !== getTodayCode_()) {
       return { ok: false, msg: '今日通關碼不正確' };
     }
+    // 算距離（有座標才算）；REQUIRE_LOCATION 開啟時才據此擋人
+    const la = parseFloat(lat), ln = parseFloat(lng);
+    const hasLoc = !(isNaN(la) || isNaN(ln));
+    const dist = hasLoc ? distanceMeters_(la, ln, CFG.SHOP_LAT, CFG.SHOP_LNG) : null;
     if (CFG.REQUIRE_LOCATION) {
-      const la = parseFloat(lat), ln = parseFloat(lng);
-      if (isNaN(la) || isNaN(ln)) {
-        return { ok: false, msg: '請開啟定位權限才能蓋章' };
-      }
-      const dist = distanceMeters_(la, ln, CFG.SHOP_LAT, CFG.SHOP_LNG);
+      if (!hasLoc) return { ok: false, msg: '請開啟定位權限才能蓋章' };
       if (dist > CFG.RADIUS_M) {
         return { ok: false, msg: '請在店內掃碼蓋章（目前距離約 ' + Math.round(dist) + ' 公尺）' };
       }
@@ -221,6 +236,8 @@ function addStamp(phone, code, lat, lng) {
     sh.getRange(row, 2).setValue(points);
     sh.getRange(row, 3).setValue(today);
     sh.getRange(row, 4).setValue(new Date());
+    logStamp_(phone, hasLoc ? la : '', hasLoc ? ln : '', dist == null ? '' : Math.round(dist),
+             dist == null ? '' : (dist <= CFG.RADIUS_M), points);
     return {
       ok: true,
       points: points,
