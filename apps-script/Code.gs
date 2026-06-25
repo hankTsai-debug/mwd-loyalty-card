@@ -15,7 +15,8 @@ const CFG = {
   CONFIG_SHEET: 'Config',
   TARGET: 10,                       // 集滿幾點可兌換
   REWARD: '指定餐點或飲料一份',       // 獎勵內容
-  MIN_SPEND: 150,                   // 消費滿多少才可集點（顯示用；實際把關靠「出餐附碼」）
+  MIN_SPEND_WEEKDAY: 180,           // 平日（週二～週五）最低消費
+  MIN_SPEND_WEEKEND: 280,           // 假日（週六、週日）最低消費
   SHOP: 'MWD 泰山明志 BRUNCH',
   TZ: 'Asia/Taipei',
   // ---- 定位檢查（防止密碼外流後遠端亂蓋）----
@@ -73,6 +74,12 @@ function todayStr_() {
   return Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd');
 }
 
+/** 依星期回傳今天的最低消費（週六/週日為假日） */
+function minSpend_() {
+  const dow = Number(Utilities.formatDate(new Date(), CFG.TZ, 'u')); // 1=Mon .. 7=Sun
+  return (dow === 6 || dow === 7) ? CFG.MIN_SPEND_WEEKEND : CFG.MIN_SPEND_WEEKDAY;
+}
+
 function findRow_(sh, phone) {
   const data = sh.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
@@ -110,7 +117,9 @@ function getStatus(phone) {
     points: points,
     target: CFG.TARGET,
     reward: CFG.REWARD,
-    minSpend: CFG.MIN_SPEND,
+    minSpend: minSpend_(),
+    minWeekday: CFG.MIN_SPEND_WEEKDAY,
+    minWeekend: CFG.MIN_SPEND_WEEKEND,
     shop: CFG.SHOP,
     canRedeem: points >= CFG.TARGET,
     stampedToday: last === todayStr_(),

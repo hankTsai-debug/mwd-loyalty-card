@@ -94,7 +94,8 @@
 
 <script>
 /* ===== 設定（試玩版寫死在前端；正式版這些在後端/試算表） ===== */
-var CFG = { TARGET:10, REWARD:'指定餐點或飲料一份', TODAY_CODE:'1234', STAFF_CODE:'8888', MIN_SPEND:150,
+var CFG = { TARGET:10, REWARD:'指定餐點或飲料一份', TODAY_CODE:'1234', STAFF_CODE:'8888',
+            MIN_SPEND_WEEKDAY:180, MIN_SPEND_WEEKEND:280,
             SHOP_LAT:25.055472543375735, SHOP_LNG:121.43159737244797, RADIUS_M:150 };
 var DB_KEY = 'mwd_demo_db';
 
@@ -111,7 +112,9 @@ function loadDB(){ try{ return JSON.parse(localStorage.getItem(DB_KEY)||'{}'); }
 function saveDB(db){ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
 function normPhone(p){ return String(p||'').replace(/[^0-9]/g,''); }
 function dayOffset(){ return parseInt(localStorage.getItem('mwd_demo_dayoffset')||'0',10)||0; }
-function today(){ var d=new Date(); d.setDate(d.getDate()+dayOffset()); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function simDate(){ var d=new Date(); d.setDate(d.getDate()+dayOffset()); return d; }
+function today(){ var d=simDate(); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function demoMinSpend(){ var w=simDate().getDay(); return (w===0||w===6)?CFG.MIN_SPEND_WEEKEND:CFG.MIN_SPEND_WEEKDAY; }
 function nextDay(){ localStorage.setItem('mwd_demo_dayoffset', dayOffset()+1); updateSimDay(); if(STATE.phone){ render(getStatus(STATE.phone)); $('code').focus(); } }
 function updateSimDay(){ var el=$('simDay'); if(el) el.textContent='模擬日期：第 '+(dayOffset()+1)+' 天（'+today()+'）'; }
 
@@ -121,6 +124,7 @@ function getStatus(phone){
   if(phone.length<8) return {ok:false,msg:'請輸入正確的手機號碼'};
   var db=loadDB(), u=db[phone]||{points:0,last:''};
   return {ok:true,phone:phone,points:u.points,target:CFG.TARGET,reward:CFG.REWARD,
+    minSpend:demoMinSpend(), minWeekday:CFG.MIN_SPEND_WEEKDAY, minWeekend:CFG.MIN_SPEND_WEEKEND,
     canRedeem:u.points>=CFG.TARGET, stampedToday:u.last===today()};
 }
 function addStamp(phone, code){
@@ -157,12 +161,13 @@ function login(){
   if(!r.ok){setMsg($('loginMsg'),r.msg,false);return;}
   localStorage.setItem('mwd_phone',r.phone); STATE.phone=r.phone; STATE.target=r.target;
   $('rwd').textContent=r.reward;
-  $('rule').textContent='ℹ️ 消費滿 $'+CFG.MIN_SPEND+' 才可集點，請輸入餐點上的今日通關碼';
+  $('rule').textContent='ℹ️ 今日消費滿 $'+r.minSpend+' 才可集點（平日 $'+r.minWeekday+'／假日 $'+r.minWeekend+'）· 請輸入餐點上的今日通關碼';
   $('login').style.display='none'; $('main').style.display='block'; render(r);
 }
 function logout(){localStorage.removeItem('mwd_phone');$('main').style.display='none';$('login').style.display='block';$('phone').value='';setMsg($('loginMsg'),'',true);}
 function render(r){
   STATE.target=r.target; $('pNum').textContent=r.points; $('pTar').textContent=r.target;
+  if(r.minSpend){ $('rule').textContent='ℹ️ 今日消費滿 $'+r.minSpend+' 才可集點（平日 $'+r.minWeekday+'／假日 $'+r.minWeekend+'）· 請輸入餐點上的今日通關碼'; }
   var left=Math.max(0,r.target-r.points);
   $('hint').textContent=left>0?('再 '+left+' 點換好料'):'已集滿，可以兌換囉！';
   var g=$('grid'); g.innerHTML='';

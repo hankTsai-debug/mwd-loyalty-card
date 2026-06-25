@@ -134,7 +134,7 @@
       STATE.phone=r.phone; STATE.target=r.target;
       $('shop').textContent = r.shop || '泰山明志 BRUNCH';
       $('rwd').textContent = r.reward;
-      $('rule').textContent = 'ℹ️ 消費滿 $' + (r.minSpend||150) + ' 才可集點，請輸入餐點上的今日通關碼';
+      $('rule').textContent = 'ℹ️ 今日消費滿 $' + r.minSpend + ' 才可集點（平日 $' + r.minWeekday + '／假日 $' + r.minWeekend + '）· 請輸入餐點上的今日通關碼';
       $('login').style.display='none';
       $('main').style.display='block';
       render(r);
