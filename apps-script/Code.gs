@@ -133,6 +133,17 @@ function todayStr_() {
   return Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd');
 }
 
+/**
+ * 把 lastStampDate 儲存格的值統一轉成 'yyyy-MM-dd' 字串再比較。
+ * 試算表會把字串 '2026-07-19' 自動吃成「日期物件」，直接 String() 會變成
+ * 'Sun Jul 19 2026...'，導致「今天是否已蓋過」永遠比對不到 → 同一天可重複加點。
+ * 這裡不論存進去是字串或日期，都轉回同一種格式，確保每天限一次真正生效。
+ */
+function normDateCell_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, CFG.TZ, 'yyyy-MM-dd');
+  return String(v || '').trim();
+}
+
 /** 依星期回傳今天的最低消費（週六/週日為假日） */
 function minSpend_() {
   const dow = Number(Utilities.formatDate(new Date(), CFG.TZ, 'u')); // 1=Mon .. 7=Sun
@@ -181,7 +192,7 @@ function getStatus(phone) {
   let points = 0, last = '';
   if (row > 0) {
     points = Number(sh.getRange(row, 2).getValue()) || 0;
-    last = String(sh.getRange(row, 3).getValue() || '');
+    last = normDateCell_(sh.getRange(row, 3).getValue());
   }
   return {
     ok: true,
@@ -228,14 +239,17 @@ function addStamp(phone, code, lat, lng) {
       sh.appendRow([phone, 0, '', '']);
       row = sh.getLastRow();
     }
-    const last = String(sh.getRange(row, 3).getValue() || '');
+    const last = normDateCell_(sh.getRange(row, 3).getValue());
     let points = Number(sh.getRange(row, 2).getValue()) || 0;
     if (last === today) {
       return { ok: false, msg: '今天已經蓋過囉，明天再來！', points: points, target: CFG.TARGET };
     }
     points += 1;
     sh.getRange(row, 2).setValue(points);
-    sh.getRange(row, 3).setValue(today);
+    // 以純文字寫入日期，避免試算表把 '2026-07-19' 轉成日期物件而讓比對失效
+    const lastCell = sh.getRange(row, 3);
+    lastCell.setNumberFormat('@');
+    lastCell.setValue(today);
     sh.getRange(row, 4).setValue(new Date());
     logStamp_(phone, hasLoc ? la : '', hasLoc ? ln : '', dist == null ? '' : Math.round(dist),
              dist == null ? '' : (dist <= CFG.RADIUS_M), points);
@@ -274,4 +288,230 @@ function redeem(phone, staffCode) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* ==================================================================
+ *  維護工具（人工清理用；不影響客人蓋章流程）
+ *  - previewPhone(phone)  ：唯讀，預覽某支號碼在 Points / Log 的資料
+ *  - flagTestPhone(phone) ：Points 刪除該號碼、Log 只在 note 欄標 'test'（不刪列）
+ *  遵守專案 SOP：Log 為稽核紀錄「只標記、不刪」；只在 Points 修改狀態；動手前先備份。
+ *  帶參數的函式無法在編輯器直接「執行」，請用下方「🛠 維護」選單操作。
+ * ================================================================== */
+
+/** 開啟試算表時建立「🛠 維護」選單（用對話框輸入號碼，避免手動點格子） */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('🛠 維護')
+    .addItem('一鍵備份（建立副本）', 'promptBackupNow_')
+    .addSeparator()
+    .addItem('預覽號碼資料（唯讀）', 'promptPreviewPhone_')
+    .addItem('標記測試號碼（Points 刪除 / Log 標記）', 'promptFlagTestPhone_')
+    .addItem('修正點數（Points 改值＋Log 留紀錄）', 'promptFixPoints_')
+    .addToUi();
+}
+
+/** 找出 Log 的 note 欄；沒有就自動補在最後一欄，回傳 1-based 欄號 */
+function ensureLogNoteCol_() {
+  const sh = getSheet_(CFG.LOG_SHEET);
+  if (sh.getLastRow() === 0) {   // Log 全空 → 先補標準表頭（含 note）
+    sh.appendRow(['time', 'phone', 'lat', 'lng', 'distM', 'within' + CFG.RADIUS_M + 'm', 'pointsAfter', 'note']);
+    return 8;
+  }
+  const lastCol = sh.getLastColumn();
+  const header = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  for (let i = 0; i < header.length; i++) {
+    if (String(header[i]).trim().toLowerCase() === 'note') return i + 1;
+  }
+  const col = lastCol + 1;       // 沒有 note 欄 → 加在最後一欄
+  sh.getRange(1, col).setValue('note');
+  return col;
+}
+
+/** 收集某支號碼在 Points / Log 的所有列（供預覽與清理共用；phone 需已正規化） */
+function collectPhoneRows_(phone) {
+  const pData = getSheet_(CFG.POINTS_SHEET).getDataRange().getValues();
+  const pointsRows = [];
+  for (let i = 1; i < pData.length; i++) {
+    if (normPhone_(pData[i][0]) === phone) {
+      pointsRows.push({ row: i + 1, points: pData[i][1], lastStampDate: normDateCell_(pData[i][2]) });
+    }
+  }
+  const gData = getSheet_(CFG.LOG_SHEET).getDataRange().getValues();
+  const logRows = [];
+  for (let i = 1; i < gData.length; i++) {
+    if (normPhone_(gData[i][1]) === phone) {
+      logRows.push({ row: i + 1, time: gData[i][0], pointsAfter: gData[i][6] });
+    }
+  }
+  return { pointsRows: pointsRows, logRows: logRows };
+}
+
+/**
+ * 唯讀預覽：某支號碼在 Points / Log 有哪些資料，完全不改動。
+ * 結果會寫到執行紀錄（Logger），也會回傳物件。用選單執行時會跳出彈窗顯示。
+ */
+function previewPhone(phone) {
+  ensureSetup_();
+  phone = normPhone_(phone);
+  if (phone.length < 8) return { ok: false, msg: '請提供正確的手機號碼（純數字）' };
+  const f = collectPhoneRows_(phone);
+  const summary =
+    '號碼 ' + phone + '\n' +
+    'Points 分頁：' + f.pointsRows.length + ' 列' + (f.pointsRows.length ? '（清理時會刪除）' : '') + '\n' +
+    f.pointsRows.map(function (r) {
+      return '  · 第 ' + r.row + ' 列  points=' + r.points + '  lastStampDate=' + r.lastStampDate;
+    }).join('\n') + (f.pointsRows.length ? '\n' : '') +
+    'Log 分頁：' + f.logRows.length + ' 列（清理時「不刪」，只在 note 欄標 test）\n' +
+    f.logRows.map(function (r) {
+      return '  · 第 ' + r.row + ' 列  time=' + r.time + '  pointsAfter=' + r.pointsAfter;
+    }).join('\n');
+  Logger.log(summary);
+  return { ok: true, phone: phone, pointsRows: f.pointsRows, logRows: f.logRows, summary: summary };
+}
+
+/**
+ * 清理測試號碼：Points 刪除該號碼所有列、Log 只在 note 欄標 'test'（不刪列）。
+ * 遵守 SOP：Log 為稽核紀錄只標記不刪。建議動手前先手動建立備份副本。
+ */
+function flagTestPhone(phone) {
+  ensureSetup_();
+  phone = normPhone_(phone);
+  if (phone.length < 8) return { ok: false, msg: '請提供正確的手機號碼（純數字）' };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const f = collectPhoneRows_(phone);
+
+    // 1) Log：只標記，不刪。把每一列的 note 欄設成 'test'（已含 test 則略過）
+    const noteCol = ensureLogNoteCol_();
+    const gsh = getSheet_(CFG.LOG_SHEET);
+    let flagged = 0;
+    f.logRows.forEach(function (r) {
+      const cell = gsh.getRange(r.row, noteCol);
+      const cur = String(cell.getValue() || '').trim();
+      if (cur.toLowerCase().indexOf('test') === -1) {
+        cell.setValue(cur ? (cur + '; test') : 'test');
+      }
+      flagged++;
+    });
+
+    // 2) Points：刪除該號碼所有列（由下往上刪，列號才不會位移）
+    const psh = getSheet_(CFG.POINTS_SHEET);
+    const rowsDesc = f.pointsRows.map(function (r) { return r.row; }).sort(function (a, b) { return b - a; });
+    rowsDesc.forEach(function (rowNum) { psh.deleteRow(rowNum); });
+
+    const msg = '號碼 ' + phone + '：Points 刪除 ' + rowsDesc.length + ' 列、Log 標記 test ' + flagged + ' 列';
+    Logger.log(msg);
+    return { ok: true, phone: phone, pointsDeleted: rowsDesc.length, logFlagged: flagged, msg: msg };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ---- 「🛠 維護」選單用的對話框包裝（先預覽、再確認、才動手）---- */
+
+function promptPreviewPhone_() {
+  const ui = SpreadsheetApp.getUi();
+  const res = ui.prompt('預覽號碼資料（唯讀）', '請輸入要查詢的手機號碼：', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  const out = previewPhone(res.getResponseText());
+  ui.alert(out.ok ? out.summary : out.msg);
+}
+
+function promptFlagTestPhone_() {
+  const ui = SpreadsheetApp.getUi();
+  const res = ui.prompt('標記測試號碼', '請輸入要清理的手機號碼：', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  const phone = res.getResponseText();
+
+  const pre = previewPhone(phone);                 // 先預覽
+  if (!pre.ok) { ui.alert(pre.msg); return; }
+  const confirm = ui.alert(
+    '確認清理？（建議先建立備份副本）',
+    pre.summary + '\n\n將執行：Points 刪除上列、Log 只標記 test（不刪）。要繼續嗎？',
+    ui.ButtonSet.YES_NO);
+  if (confirm !== ui.Button.YES) return;
+
+  const out = flagTestPhone(phone);
+  ui.alert(out.ok ? ('完成：\n' + out.msg) : out.msg);
+}
+
+/** 一鍵備份：複製整份試算表到雲端硬碟，命名含日期時間；回傳新檔名稱與網址 */
+function backupNow_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const stamp = Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd_HHmm');
+  const name = 'MWD集點卡_backup_' + stamp;
+  const copy = ss.copy(name);
+  Logger.log('已備份：' + name + '  ' + copy.getUrl());
+  return { ok: true, name: name, url: copy.getUrl(), id: copy.getId() };
+}
+
+/**
+ * 修正點數：把某支號碼的 Points 點數改成正確值，並在 Log 補一筆「人工修正」紀錄（不刪舊資料）。
+ * 用於修掉像 bug 灌多的點數（例：965106328 從 8 改回 4）。correctPoints 需為 0 以上整數。
+ */
+function fixInflatedPoints(phone, correctPoints) {
+  ensureSetup_();
+  phone = normPhone_(phone);
+  if (phone.length < 8) return { ok: false, msg: '請提供正確的手機號碼（純數字）' };
+  const target = parseInt(correctPoints, 10);
+  if (isNaN(target) || target < 0) return { ok: false, msg: '請輸入正確的點數（0 以上整數）' };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const psh = getSheet_(CFG.POINTS_SHEET);
+    const row = findRow_(psh, phone);
+    if (row < 0) return { ok: false, msg: '查無此號碼（Points 沒有這一列）' };
+    const before = Number(psh.getRange(row, 2).getValue()) || 0;
+    if (before === target) return { ok: false, msg: '點數已經是 ' + target + '，不需修改' };
+
+    psh.getRange(row, 2).setValue(target);     // 改點數
+    psh.getRange(row, 4).setValue(new Date());  // 更新 updatedAt
+
+    // Log 補一筆人工修正紀錄（append-only；note 說明前後值）
+    const noteCol = ensureLogNoteCol_();
+    const gsh = getSheet_(CFG.LOG_SHEET);
+    const rowVals = [new Date(), phone, '', '', '', '', target];
+    while (rowVals.length < noteCol - 1) rowVals.push('');   // 補齊到 note 欄前一格
+    rowVals[noteCol - 1] = '人工修正 ' + before + '→' + target;
+    gsh.appendRow(rowVals);
+
+    const msg = '號碼 ' + phone + ' 點數：' + before + ' → ' + target + '（已在 Log 留紀錄）';
+    Logger.log(msg);
+    return { ok: true, phone: phone, before: before, after: target, msg: msg };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ---- 「🛠 維護」選單用的對話框包裝 ---- */
+
+function promptBackupNow_() {
+  const ui = SpreadsheetApp.getUi();
+  const c = ui.alert('建立備份副本', '將複製整份試算表到你的雲端硬碟，繼續？', ui.ButtonSet.YES_NO);
+  if (c !== ui.Button.YES) return;
+  const out = backupNow_();
+  ui.alert('備份完成：\n' + out.name + '\n' + out.url);
+}
+
+function promptFixPoints_() {
+  const ui = SpreadsheetApp.getUi();
+  const r1 = ui.prompt('修正點數', '請輸入手機號碼：', ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  const phone = r1.getResponseText();
+  const pre = previewPhone(phone);
+  if (!pre.ok) { ui.alert(pre.msg); return; }
+
+  const r2 = ui.prompt('修正點數', pre.summary + '\n\n要把點數改成多少？（0 以上整數）', ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+
+  const confirm = ui.alert('確認修正？（建議先備份）',
+    '號碼 ' + normPhone_(phone) + ' → 點數改成 ' + r2.getResponseText() + '，並在 Log 留紀錄。要繼續嗎？',
+    ui.ButtonSet.YES_NO);
+  if (confirm !== ui.Button.YES) return;
+
+  const out = fixInflatedPoints(phone, r2.getResponseText());
+  ui.alert(out.ok ? ('完成：\n' + out.msg) : out.msg);
 }
