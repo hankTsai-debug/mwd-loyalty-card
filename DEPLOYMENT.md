@@ -34,3 +34,17 @@
 - 集點 QR：`MWDImages/MWD集點卡_QRcode.png`
 - 今日通關碼卡（含 QR）：`MWDImages/今日通關碼卡.png`／`.pdf`
 - 資料試算表「未命名的試算表」存放 Points／Config／Log 三個工作表（在你的 Google 雲端硬碟）
+
+## 版本紀錄
+
+- **v4（2026-07-20）**
+  - fix：修正「每支手機每天限一次」失效——`lastStampDate` 字串被試算表自動轉成日期物件，
+    `String(Date)` 永遠不等於 `"yyyy-MM-dd"`，導致同一支手機同天可重複蓋點。
+    改用 `normDateCell_` 統一型別後比對，並以文字格式寫入日期。
+  - feat：新增「🛠 維護」選單與維護工具 `previewPhone` / `flagTestPhone` /
+    `fixInflatedPoints` / `backupNow_`（Log 只標記不刪、只在 Points 改狀態、先預覽再確認）。
+  - test：新增 `test/gs_test.js` 行為測試（38 項通過）。
+  - 資料維護 SOP 見 `docs/部署教學.md`。
+- **v3（2026-06-25）**：假日最低消費 280→300、獎勵改為「炸物拚盤＋Snoopy 鑰匙圈」。
+- **v2**：`normPhone_` 去除前導 0，修正試算表把 `09xx` 存成數字導致查無點數／每日限制失效。
+- **v1（2026-06-25）**：首次上線。
