@@ -77,7 +77,7 @@ const Logger = { log() {} };
 
 // ---- Load Code.gs into a sandbox ----
 const src = fs.readFileSync(CODE, 'utf8') +
-  '\n;this.__api = { CFG, ensureSetup_, addStamp, getStatus, previewPhone, flagTestPhone, fixInflatedPoints, backupNow_, ensureLogNoteCol_, findRow_, normPhone_, getSheet_ };';
+  '\n;this.__api = { CFG, ensureSetup_, addStamp, getStatus, previewPhone, flagTestPhone, fixInflatedPoints, backupNow_, ensureLogNoteCol_, findRow_, normPhone_, getSheet_, scanSuspiciousPairs, nearIdentical_ };';
 // Share the outer realm's Date so `v instanceof Date` in Code.gs matches Dates the mock returns
 // (single realm mirrors real Apps Script; without this, vm gives the sandbox a different Date).
 const sandbox = { SpreadsheetApp, LockService, Utilities, Logger, console, Date };
@@ -203,6 +203,32 @@ A.getSheet_('Log').setContents([['time', 'phone', 'lat', 'lng', 'distM', 'within
 const created = A.ensureLogNoteCol_();
 eq('creates note col at 8', created, 8);
 eq('header now says note', sheet('Log')._get(1, 8), 'note');
+
+// T8: scanSuspiciousPairs finds near-identical co-stampers, skips test rows & far-apart
+console.log('\nT8 scanSuspiciousPairs');
+reset();
+A.getSheet_('Log').setContents([
+  ['time', 'phone', 'lat', 'lng', 'distM', 'within150m', 'pointsAfter', 'note'],
+  [new Date(2026, 6, 1, 10, 21, 29), '933828417', '', '', '', '', 2, ''],
+  [new Date(2026, 6, 1, 10, 24, 16), '933828407', '', '', '', '', 1, ''],   // 167s after 417, near-identical
+  [new Date(2026, 6, 17, 10, 27, 21), '933828417', '', '', '', '', 2, ''],
+  [new Date(2026, 6, 17, 10, 28, 7), '933828407', '', '', '', '', 3, ''],   // 46s after 417 -> 2nd day
+  [new Date(2026, 6, 5, 9, 0, 0), '900000001', '', '', '', '', 1, ''],
+  [new Date(2026, 6, 5, 12, 0, 0), '955555555', '', '', '', '', 1, ''],     // 3h apart -> NOT a pair
+  [new Date(2026, 6, 8, 10, 0, 0), '912345678', '', '', '', '', 1, 'test'], // test rows -> skipped
+  [new Date(2026, 6, 8, 10, 0, 30), '987654322', '', '', '', '', 1, 'test'],
+]);
+const sp = A.scanSuspiciousPairs(600);
+eq('scan ok', sp.ok, true);
+eq('one near-identical pair', sp.strong.length, 1);
+ok('near pair is 407 & 417', sp.strong[0] && [sp.strong[0].a, sp.strong[0].b].sort().join(',') === '933828407,933828417');
+eq('near pair spans 2 days', sp.strong[0].count, 2);
+ok('min gap 46s captured', sp.strong[0].minGap === 46, String(sp.strong[0].minGap));
+ok('far-apart pair (>window) not flagged', !sp.strong.concat(sp.repeat).some(x => [x.a, x.b].sort().join(',') === '900000001,955555555'));
+ok('test-flagged rows skipped', !sp.strong.concat(sp.repeat).some(x => (x.a + x.b).indexOf('912345678') !== -1));
+eq('nearIdentical_ true for 1-digit diff', A.nearIdentical_('933828407', '933828417'), true);
+eq('nearIdentical_ false for 2-digit diff', A.nearIdentical_('933828407', '933828517'), false);
+eq('nearIdentical_ false for diff length', A.nearIdentical_('93382840', '933828170'), false);
 
 console.log('\n==============================');
 console.log(`RESULT: ${pass} passed, ${fail} failed`);

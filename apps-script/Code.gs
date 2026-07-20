@@ -305,6 +305,7 @@ function onOpen() {
     .addItem('一鍵備份（建立副本）', 'promptBackupNow_')
     .addSeparator()
     .addItem('預覽號碼資料（唯讀）', 'promptPreviewPhone_')
+    .addItem('掃描可疑成對（唯讀）', 'promptScanSuspiciousPairs_')
     .addItem('標記測試號碼（Points 刪除 / Log 標記）', 'promptFlagTestPhone_')
     .addItem('修正點數（Points 改值＋Log 留紀錄）', 'promptFixPoints_')
     .addToUi();
@@ -486,7 +487,99 @@ function fixInflatedPoints(phone, correctPoints) {
   }
 }
 
+/** 兩個字串是否「長度相同、只差一個字元」（抓相近號碼／打錯字的分身） */
+function nearIdentical_(a, b) {
+  a = String(a); b = String(b);
+  if (a.length !== b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) { diff++; if (diff > 1) return false; }
+  return diff === 1;
+}
+
+/**
+ * 唯讀掃描：找出 Log 中「同一天、windowSec 秒內成對蓋章」的號碼組，用來抓
+ * 跨號碼重複集點（例：一人用兩支相近號碼灌點）。已略過 note 標 test 的列。
+ * 回傳：strong＝號碼只差一碼的組；repeat＝不同號碼但重複成對（≥2 天）的組。
+ */
+function scanSuspiciousPairs(windowSec) {
+  ensureSetup_();
+  var WIN = parseInt(windowSec, 10);
+  if (isNaN(WIN) || WIN <= 0) WIN = 600;   // 預設 10 分鐘
+
+  var data = getSheet_(CFG.LOG_SHEET).getDataRange().getValues();
+  var header = data[0] || [];
+  var noteCol = -1;
+  for (var i = 0; i < header.length; i++) if (String(header[i]).trim().toLowerCase() === 'note') noteCol = i;
+
+  // 依日期分組，收集 { 毫秒時間, 手機 }
+  var byDay = {};
+  for (var r = 1; r < data.length; r++) {
+    var t = data[r][0];
+    if (!(t instanceof Date)) continue;                       // 沒有有效時間就跳過
+    var phone = normPhone_(data[r][1]);
+    if (phone.length < 8) continue;
+    if (noteCol >= 0 && String(data[r][noteCol] || '').toLowerCase().indexOf('test') !== -1) continue;
+    var day = Utilities.formatDate(t, CFG.TZ, 'yyyy-MM-dd');
+    (byDay[day] = byDay[day] || []).push({ ms: t.getTime(), phone: phone });
+  }
+
+  // 同一天、時間差 <= WIN 的不同號碼配對
+  var pairs = {};
+  for (var d in byDay) {
+    var lst = byDay[d];
+    lst.sort(function (x, y) { return x.ms - y.ms; });
+    for (var a1 = 0; a1 < lst.length; a1++) {
+      for (var b1 = a1 + 1; b1 < lst.length; b1++) {
+        if (lst[a1].phone === lst[b1].phone) continue;
+        var gap = Math.round(Math.abs(lst[b1].ms - lst[a1].ms) / 1000);
+        if (gap > WIN) continue;
+        var p1 = lst[a1].phone, p2 = lst[b1].phone;
+        if (p1 > p2) { var tmp = p1; p1 = p2; p2 = tmp; }
+        var key = p1 + '|' + p2;
+        var rec = pairs[key] || (pairs[key] = { a: p1, b: p2, days: {}, minGap: 1e9 });
+        if (rec.days[d] == null || gap < rec.days[d]) rec.days[d] = gap;
+        if (gap < rec.minGap) rec.minGap = gap;
+      }
+    }
+  }
+
+  var list = [];
+  for (var k in pairs) {
+    var pr = pairs[k], c = 0;
+    for (var dd in pr.days) c++;
+    list.push({ a: pr.a, b: pr.b, count: c, minGap: pr.minGap, near: nearIdentical_(pr.a, pr.b), days: pr.days });
+  }
+  list.sort(function (x, y) {
+    if (x.near !== y.near) return x.near ? -1 : 1;
+    if (x.count !== y.count) return y.count - x.count;
+    return x.minGap - y.minGap;
+  });
+  var strong = list.filter(function (x) { return x.near; });
+  var repeat = list.filter(function (x) { return !x.near && x.count >= 2; });
+
+  function fmtDays(days) { var o = []; for (var dk in days) o.push(dk + '(隔' + days[dk] + '秒)'); return o.join(', '); }
+  var lines = ['可疑成對偵測（同一天 ' + WIN + ' 秒內成對蓋章；已略過 test 列）', ''];
+  lines.push('【高度可疑】號碼只差一碼：' + (strong.length ? '' : '無'));
+  strong.forEach(function (x) { lines.push('  ' + x.a + ' & ' + x.b + '  共 ' + x.count + ' 天  ' + fmtDays(x.days)); });
+  lines.push('');
+  lines.push('【值得留意】不同號碼但重複成對（≥2 天，多半是一起來的客人）：' + (repeat.length ? '' : '無'));
+  repeat.forEach(function (x) { lines.push('  ' + x.a + ' & ' + x.b + '  共 ' + x.count + ' 天  ' + fmtDays(x.days)); });
+
+  var summary = lines.join('\n');
+  Logger.log(summary);
+  return { ok: true, window: WIN, strong: strong, repeat: repeat, summary: summary };
+}
+
 /* ---- 「🛠 維護」選單用的對話框包裝 ---- */
+
+function promptScanSuspiciousPairs_() {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt('掃描可疑成對（唯讀）', '同一天多少秒內算「成對」？（預設 600＝10 分鐘）', ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var w = res.getResponseText().trim();
+  var out = scanSuspiciousPairs(w === '' ? 600 : w);
+  ui.alert(out.summary);
+}
 
 function promptBackupNow_() {
   const ui = SpreadsheetApp.getUi();
